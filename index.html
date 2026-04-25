@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#c8956c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Coffee Mgr">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <title>Coffee Manager</title>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- Sidebar (desktop) -->
+  <nav id="sidebar">
+    <div id="sidebar-brand">
+      <div class="brand-logo">☕</div>
+      <div class="brand-name">Coffee Manager</div>
+      <div class="brand-sub">ระบบบริหารร้านกาแฟ</div>
+    </div>
+    <div id="sidebar-nav"></div>
+  </nav>
+
+  <!-- Main content -->
+  <main id="main">
+    <div id="content">
+
+      <div id="tab-dashboard" class="tab-panel">
+        <div style="text-align:center;padding:60px;color:var(--text-muted)">กำลังโหลด...</div>
+      </div>
+
+      <div id="tab-beans" class="tab-panel"></div>
+      <div id="tab-sales" class="tab-panel"></div>
+      <div id="tab-customers" class="tab-panel"></div>
+      <div id="tab-supplies" class="tab-panel"></div>
+      <div id="tab-expenses" class="tab-panel"></div>
+      <div id="tab-settings" class="tab-panel"></div>
+
+    </div>
+  </main>
+
+</div>
+
+<!-- Bottom nav (mobile) -->
+<nav id="bottom-nav">
+  <div id="bottom-nav-inner"></div>
+</nav>
+
+<!-- Modal overlay -->
+<div id="modal-overlay"></div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script src="db.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

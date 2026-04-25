@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head><title>Generate Coffee Manager Icons</title></head>
+<body style="background:#1a1410;color:#e8ddd0;font-family:sans-serif;padding:20px">
+<h3>Coffee Manager — Icon Generator</h3>
+<canvas id="c192" width="192" height="192" style="margin:8px;border-radius:24px"></canvas>
+<canvas id="c512" width="512" height="512" style="margin:8px;border-radius:64px;width:128px;height:128px"></canvas>
+<br><br>
+<button onclick="downloadAll()" style="background:#c8956c;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:16px;cursor:pointer">
+  📥 Download Icons (icon-192.png + icon-512.png)
+</button>
+<p style="color:#9c8e7c;font-size:13px;margin-top:12px">
+  กด Download แล้วนำไฟล์ไปวางในโฟลเดอร์ <code>icons/</code>
+</p>
+<script>
+function drawIcon(canvas) {
+  const s = canvas.width;
+  const ctx = canvas.getContext('2d');
+
+  // Rounded rect background
+  const r = s * 0.18;
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.lineTo(s - r, 0);
+  ctx.quadraticCurveTo(s, 0, s, r);
+  ctx.lineTo(s, s - r);
+  ctx.quadraticCurveTo(s, s, s - r, s);
+  ctx.lineTo(r, s);
+  ctx.quadraticCurveTo(0, s, 0, s - r);
+  ctx.lineTo(0, r);
+  ctx.quadraticCurveTo(0, 0, r, 0);
+  ctx.closePath();
+
+  const bg = ctx.createLinearGradient(0, 0, s, s);
+  bg.addColorStop(0, '#2e2218');
+  bg.addColorStop(1, '#1a1410');
+  ctx.fillStyle = bg;
+  ctx.fill();
+
+  // Cup body (trapezoid)
+  const cx = s * 0.5;
+  const cupTop = s * 0.35;
+  const cupBot = s * 0.72;
+  const topW = s * 0.38;
+  const botW = s * 0.30;
+
+  ctx.beginPath();
+  ctx.moveTo(cx - topW / 2, cupTop);
+  ctx.lineTo(cx + topW / 2, cupTop);
+  ctx.lineTo(cx + botW / 2, cupBot);
+  ctx.arcTo(cx + botW / 2, cupBot + s * 0.05, cx, cupBot + s * 0.05, s * 0.06);
+  ctx.arcTo(cx - botW / 2, cupBot + s * 0.05, cx - botW / 2, cupBot, s * 0.06);
+  ctx.lineTo(cx - botW / 2, cupBot);
+  ctx.closePath();
+  ctx.fillStyle = '#FAF6F0';
+  ctx.fill();
+
+  // Coffee liquid inside cup
+  ctx.beginPath();
+  ctx.moveTo(cx - topW / 2 + s * 0.02, cupTop);
+  ctx.lineTo(cx + topW / 2 - s * 0.02, cupTop);
+  ctx.lineTo(cx + topW / 2 - s * 0.02 - s * 0.03, cupTop + s * 0.18);
+  ctx.lineTo(cx - topW / 2 + s * 0.02 + s * 0.03, cupTop + s * 0.18);
+  ctx.closePath();
+  ctx.fillStyle = '#c8956c';
+  ctx.fill();
+
+  // Cup rim highlight
+  ctx.beginPath();
+  ctx.rect(cx - topW / 2, cupTop - s * 0.025, topW, s * 0.04);
+  ctx.fillStyle = '#e0b896';
+  ctx.fill();
+
+  // Saucer
+  ctx.beginPath();
+  ctx.ellipse(cx, cupBot + s * 0.06, botW * 0.75, s * 0.04, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#e8ddd0';
+  ctx.fill();
+
+  // Handle
+  const hx = cx + botW / 2;
+  const hy = (cupTop + cupBot) / 2;
+  ctx.beginPath();
+  ctx.arc(hx + s * 0.05, hy, s * 0.09, -Math.PI * 0.55, Math.PI * 0.55);
+  ctx.strokeStyle = '#FAF6F0';
+  ctx.lineWidth = s * 0.04;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Steam
+  ctx.strokeStyle = '#c8956c';
+  ctx.lineWidth = s * 0.022;
+  ctx.lineCap = 'round';
+  const steamY0 = cupTop - s * 0.04;
+  for (let i = -1; i <= 1; i++) {
+    const sx = cx + i * s * 0.1;
+    ctx.beginPath();
+    ctx.moveTo(sx, steamY0);
+    ctx.bezierCurveTo(sx - s * 0.04, steamY0 - s * 0.07, sx + s * 0.04, steamY0 - s * 0.13, sx, steamY0 - s * 0.2);
+    ctx.stroke();
+  }
+}
+
+const c192 = document.getElementById('c192');
+const c512 = document.getElementById('c512');
+drawIcon(c192);
+drawIcon(c512);
+
+function downloadAll() {
+  [{ canvas: c192, name: 'icon-192.png' }, { canvas: c512, name: 'icon-512.png' }].forEach(({ canvas, name }) => {
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = name;
+    a.click();
+  });
+}
+</script>
+</body>
+</html>
