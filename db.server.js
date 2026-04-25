@@ -2,7 +2,14 @@
 // ใช้แทน db.js เมื่อรันผ่าน Home Server (server.js serves this file as /db.js)
 // app.js ไม่ต้องแก้ไขเลย — เรียกฟังก์ชันเดิมทุกตัว
 
+window.SERVER_MODE = true; // app.js ใช้ flag นี้ตรวจว่าต้องขอ admin password ไหม
+
 const API = '/api';
+
+// ── Error สำหรับ 401 ──────────────────────────────────────────
+class AdminAuthError extends Error {
+  constructor() { super('Unauthorized'); this.name = 'AdminAuthError'; }
+}
 
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -11,7 +18,12 @@ function genId() {
 async function apiFetch(method, url, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body !== undefined) opts.body = JSON.stringify(body);
+  // แนบ admin password (ถ้ามีใน sessionStorage) ทุก request
+  // server จะ ignore header นี้ใน route ที่ไม่ protected
+  const pwd = sessionStorage.getItem('adminPwd');
+  if (pwd) opts.headers['X-Admin-Password'] = pwd;
   const res = await fetch(url, opts);
+  if (res.status === 401) throw new AdminAuthError();
   if (!res.ok) throw new Error(`${method} ${url} → HTTP ${res.status}`);
   return res.json();
 }

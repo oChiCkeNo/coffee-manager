@@ -11,6 +11,19 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DB_PATH = path.join(__dirname, 'coffee.db');
 
+// ── Admin password ────────────────────────────────────────────
+// ตั้งค่าใน /etc/systemd/system/coffee-manager.service
+// บรรทัด: Environment=ADMIN_PASSWORD=your-secret-password
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'coffee-admin';
+
+function requireAdmin(req, res, next) {
+  const pwd = req.headers['x-admin-password'];
+  if (!pwd || pwd !== ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Unauthorized — wrong admin password' });
+  }
+  next();
+}
+
 // ── Middleware ────────────────────────────────────────────────
 app.use(express.json({ limit: '20mb' }));
 
@@ -83,16 +96,16 @@ app.put('/api/:store/:id', (req, res) => {
   res.json(item);
 });
 
-// DELETE /api/:store/:id
-app.delete('/api/:store/:id', (req, res) => {
+// DELETE /api/:store/:id  🔐 ต้อง admin
+app.delete('/api/:store/:id', requireAdmin, (req, res) => {
   const { store, id } = req.params;
   if (!guardStore(store, res)) return;
   db.prepare(`DELETE FROM [${store}] WHERE id = ?`).run(id);
   res.json({ ok: true });
 });
 
-// POST /api/clear-all  → ล้างทุก store
-app.post('/api/clear-all', (_req, res) => {
+// POST /api/clear-all  🔐 ต้อง admin
+app.post('/api/clear-all', requireAdmin, (_req, res) => {
   STORES.forEach(store => db.prepare(`DELETE FROM [${store}]`).run());
   res.json({ ok: true });
 });
@@ -106,8 +119,8 @@ app.get('/api/export', (req, res) => {
   res.json(data);
 });
 
-// POST /api/import  → restore backup JSON
-app.post('/api/import', (req, res) => {
+// POST /api/import  🔐 ต้อง admin
+app.post('/api/import', requireAdmin, (req, res) => {
   const data = req.body;
   const tx = db.transaction(() => {
     ['beans', 'customers', 'sales', 'supplies', 'expenses'].forEach(store => {

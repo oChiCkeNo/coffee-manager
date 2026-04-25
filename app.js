@@ -25,6 +25,73 @@ let salesFilterDate = null;
 let customerSearch = '';
 let quickSalePreset = null;
 
+// ===== ADMIN AUTH =====
+let _adminResolve = null;
+
+/**
+ * ตรวจ/ขอ admin password ก่อนทำ action อันตราย
+ * - SERVER_MODE=false (GitHub Pages/IndexedDB) → ผ่านเลย ไม่ต้องใส่
+ * - มี password แคชใน sessionStorage → ผ่านเลย
+ * - ไม่มี → แสดง modal ให้ใส่
+ * return true ถ้า OK, false ถ้า cancel
+ */
+async function requireAdmin() {
+  if (!window.SERVER_MODE) return true;
+  if (sessionStorage.getItem('adminPwd')) return true;
+  return new Promise(resolve => {
+    _adminResolve = resolve;
+    openModal(`<div class="modal">
+      <div class="modal-header">
+        <h3>🔐 ยืนยันตัวตน Admin</h3>
+        <button class="modal-close" onclick="cancelAdminPwd()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted" style="font-size:0.85rem;margin-bottom:14px">
+          การดำเนินการนี้ต้องการรหัส admin
+        </p>
+        <div class="form-group">
+          <label>รหัสผ่าน</label>
+          <input type="password" id="admin-pwd-input" placeholder="ใส่รหัส admin"
+            onkeydown="if(event.key==='Enter')submitAdminPwd()">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="submitAdminPwd()">✅ ยืนยัน</button>
+        <button class="btn btn-ghost" onclick="cancelAdminPwd()">ยกเลิก</button>
+      </div>
+    </div>`);
+    setTimeout(() => document.getElementById('admin-pwd-input')?.focus(), 60);
+  });
+}
+
+function submitAdminPwd() {
+  const pwd = document.getElementById('admin-pwd-input')?.value?.trim();
+  if (!pwd) { document.getElementById('admin-pwd-input')?.focus(); return; }
+  sessionStorage.setItem('adminPwd', pwd);
+  closeModal();
+  if (_adminResolve) { _adminResolve(true); _adminResolve = null; }
+}
+
+function cancelAdminPwd() {
+  closeModal();
+  if (_adminResolve) { _adminResolve(false); _adminResolve = null; }
+}
+
+function logoutAdmin() {
+  sessionStorage.removeItem('adminPwd');
+  showToast('🔓 Logout admin แล้ว');
+}
+
+/** จัดการ AdminAuthError: ล้าง cache, แสดง toast, return true ถ้า error นั้นคือ 401 */
+function handleAdminError(e) {
+  if (e.name === 'AdminAuthError') {
+    sessionStorage.removeItem('adminPwd');
+    showToast('❌ รหัส admin ไม่ถูกต้อง');
+    return true;
+  }
+  return false;
+}
+
 // ===== UTILS =====
 function escHtml(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -501,9 +568,12 @@ async function doDeductBean(id, currentQty) {
 
 async function deleteBean(id) {
   if (!confirm('ลบเมล็ดนี้ออกจากระบบ?')) return;
-  await remove('beans', id);
-  showToast('ลบแล้ว');
-  await renderBeans();
+  if (!await requireAdmin()) return;
+  try {
+    await remove('beans', id);
+    showToast('ลบแล้ว');
+    await renderBeans();
+  } catch(e) { if (!handleAdminError(e)) throw e; }
 }
 
 // ===== RESTOCK =====
@@ -1123,9 +1193,12 @@ async function saveSale() {
 
 async function deleteSale(id) {
   if (!confirm('ลบรายการขายนี้?')) return;
-  await remove('sales', id);
-  showToast('ลบแล้ว');
-  await renderSales();
+  if (!await requireAdmin()) return;
+  try {
+    await remove('sales', id);
+    showToast('ลบแล้ว');
+    await renderSales();
+  } catch(e) { if (!handleAdminError(e)) throw e; }
 }
 
 // ===== CUSTOMERS =====
@@ -1283,9 +1356,12 @@ async function saveCustomer(id) {
 
 async function deleteCustomer(id) {
   if (!confirm('ลบลูกค้านี้?')) return;
-  await remove('customers', id);
-  showToast('ลบแล้ว');
-  await renderCustomers();
+  if (!await requireAdmin()) return;
+  try {
+    await remove('customers', id);
+    showToast('ลบแล้ว');
+    await renderCustomers();
+  } catch(e) { if (!handleAdminError(e)) throw e; }
 }
 
 async function viewCustomerHistory(id) {
@@ -1482,9 +1558,12 @@ async function saveSupply(id) {
 
 async function deleteSupply(id) {
   if (!confirm('ลบรายการนี้?')) return;
-  await remove('supplies', id);
-  showToast('ลบแล้ว');
-  await renderSupplies();
+  if (!await requireAdmin()) return;
+  try {
+    await remove('supplies', id);
+    showToast('ลบแล้ว');
+    await renderSupplies();
+  } catch(e) { if (!handleAdminError(e)) throw e; }
 }
 
 // ===== EXPENSES =====
@@ -1578,9 +1657,12 @@ async function saveExpense() {
 
 async function deleteExpense(id) {
   if (!confirm('ลบรายจ่ายนี้?')) return;
-  await remove('expenses', id);
-  showToast('ลบแล้ว');
-  await renderExpenses();
+  if (!await requireAdmin()) return;
+  try {
+    await remove('expenses', id);
+    showToast('ลบแล้ว');
+    await renderExpenses();
+  } catch(e) { if (!handleAdminError(e)) throw e; }
 }
 
 // ===== SETTINGS =====
@@ -1642,6 +1724,20 @@ async function renderSettings() {
         <button class="btn btn-danger" onclick="resetData()">🗑️ รีเซ็ตข้อมูลทั้งหมด</button>
       </div>
     </div>
+
+    ${window.SERVER_MODE ? `
+    <div class="settings-section">
+      <h3>🔐 Admin</h3>
+      <p class="text-muted" style="font-size:0.82rem;margin-bottom:10px">
+        ${sessionStorage.getItem('adminPwd')
+          ? '✅ Login อยู่ — password แคชไว้ใน session นี้'
+          : '🔓 ยังไม่ได้ login — จะถูกถามเมื่อลบ/import/reset'}
+      </p>
+      <button class="btn btn-ghost" onclick="logoutAdmin();renderSettings()"
+        style="font-size:0.85rem" ${!sessionStorage.getItem('adminPwd') ? 'disabled' : ''}>
+        🔓 Logout admin
+      </button>
+    </div>` : ''}
   `;
 }
 
@@ -1678,18 +1774,24 @@ async function importData(input) {
   let data;
   try { data = JSON.parse(text); } catch { showToast('⚠️ ไฟล์ไม่ถูกต้อง'); return; }
   if (!confirm('Import จะ overwrite ข้อมูลทั้งหมด ยืนยัน?')) return;
-  await importAllData(data);
-  appSettings = await get('settings', 'main');
-  showToast('📤 Import เรียบร้อย');
-  await renderSettings();
+  if (!await requireAdmin()) return;
+  try {
+    await importAllData(data);
+    appSettings = await get('settings', 'main');
+    showToast('📤 Import เรียบร้อย');
+    await renderSettings();
+  } catch(e) { if (!handleAdminError(e)) throw e; }
 }
 
 async function resetData() {
   if (!confirm('รีเซ็ตจะลบข้อมูลทั้งหมดและใส่ข้อมูลเริ่มต้นใหม่ ยืนยัน?')) return;
-  await clearAllData();
-  appSettings = await get('settings', 'main');
-  showToast('✅ รีเซ็ตเรียบร้อย');
-  await renderSettings();
+  if (!await requireAdmin()) return;
+  try {
+    await clearAllData();
+    appSettings = await get('settings', 'main');
+    showToast('✅ รีเซ็ตเรียบร้อย');
+    await renderSettings();
+  } catch(e) { if (!handleAdminError(e)) throw e; }
 }
 
 // ===== INIT =====
