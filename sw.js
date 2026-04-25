@@ -1,15 +1,15 @@
-const CACHE_NAME = 'coffee-mgr-v1';
+const CACHE_NAME = 'coffee-mgr-v2';
 const FONT_CACHE = 'coffee-mgr-fonts-v1';
 
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/style.css',
-  '/app.js',
-  '/db.js',
-  '/manifest.json',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
+  '/coffee-manager/',
+  '/coffee-manager/index.html',
+  '/coffee-manager/style.css',
+  '/coffee-manager/app.js',
+  '/coffee-manager/db.js',
+  '/coffee-manager/manifest.json',
+  '/coffee-manager/icons/icon-192.png',
+  '/coffee-manager/icons/icon-512.png',
 ];
 
 self.addEventListener('install', e => {
