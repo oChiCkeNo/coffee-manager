@@ -1,11 +1,12 @@
 // server.js — Coffee Manager PWA · Local Home Server (Security Hardened v4)
 // FIX: Route order — specific routes before generic /api/:store
 
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') }); // โหลด .env ก่อนทุกอย่าง
 const express = require('express');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const Database = require('better-sqlite3');
-const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
