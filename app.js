@@ -317,19 +317,29 @@ async function renderBeans() {
 
   const renderRow = b => {
     const ps = getPeakStatus(b.roastDate, b.roastLevel);
-    const costPerG = b.cost_total && b.quantity_g ? (b.cost_total / b.quantity_g).toFixed(2) : '—';
+    const origQty = b.original_quantity_g || b.quantity_g;
+    const costPerG = b.cost_total && origQty ? (b.cost_total / origQty).toFixed(2) : '—';
+    const histCount = (b.purchaseHistory || []).length;
     return `<tr class="${(!b.active || b.quantity_g === 0) ? 'beans-inactive' : ''}">
-      <td><div class="fw-bold">${escHtml(b.name)}</div><div class="text-muted" style="font-size:0.75rem">${escHtml(b.origin || '')}</div></td>
+      <td>
+        <div class="fw-bold">${escHtml(b.name)}</div>
+        <div class="text-muted" style="font-size:0.75rem">${escHtml(b.origin || '')}</div>
+        ${histCount > 0 ? `<div style="font-size:0.68rem;color:var(--accent);margin-top:2px;cursor:pointer" onclick="viewPurchaseHistory('${b.id}')">📋 ${histCount} ล็อต</div>` : ''}
+      </td>
       <td><span class="badge ${getProcessBadge(b.process)}">${escHtml(b.process)}</span></td>
       <td>${escHtml(b.roastLevel)}</td>
       <td>${formatDate(b.roastDate)}</td>
       <td><span class="badge ${ps.cls}">${ps.label}</span></td>
       <td class="${b.quantity_g < 50 ? 'red' : ''}">${b.quantity_g}g</td>
-      <td>${costPerG !== '—' ? costPerG + '฿' : '—'}</td>
+      <td>
+        <div>${costPerG !== '—' ? costPerG + '฿' : '—'}</div>
+        ${histCount > 0 ? `<div style="font-size:0.68rem;color:var(--text-muted);cursor:pointer" onclick="viewPurchaseHistory('${b.id}')">ดูประวัติ ▸</div>` : ''}
+      </td>
       <td>
         <div class="table-actions">
           <button class="btn btn-ghost btn-sm" onclick="openDeductBean('${b.id}')">หัก</button>
-          <button class="btn btn-outline btn-sm" onclick="openBeanModal('${b.id}')">แก้ไข</button>
+          <button class="btn btn-outline btn-sm" onclick="openRestockModal('${b.id}')">เติมสต็อก</button>
+          <button class="btn btn-ghost btn-sm" onclick="openBeanModal('${b.id}')">แก้ไข</button>
           <button class="btn btn-danger btn-sm" onclick="deleteBean('${b.id}')">ลบ</button>
         </div>
       </td>
@@ -421,20 +431,35 @@ async function saveBean(id) {
   if (!name) { showToast('⚠️ กรุณาระบุชื่อเมล็ด'); return; }
   if (!roastDate) { showToast('⚠️ กรุณาระบุวันที่คั่ว'); return; }
 
+  const quantity_g = parseFloat(document.getElementById('bn-qty').value) || 0;
+  const cost_total = parseFloat(document.getElementById('bn-cost').value) || 0;
+
   const data = {
     name,
     origin: document.getElementById('bn-origin').value.trim(),
     process: document.getElementById('bn-process').value,
     roastLevel: document.getElementById('bn-roastlevel').value,
     roastDate,
-    quantity_g: parseFloat(document.getElementById('bn-qty').value) || 0,
-    cost_total: parseFloat(document.getElementById('bn-cost').value) || 0,
+    quantity_g,
+    cost_total,
+    // original_quantity_g เก็บน้ำหนักตอนซื้อ ใช้คำนวณต้นทุน/g
+    // อัปเดตทุกครั้งที่ user แก้ไขข้อมูลการซื้อ (ไม่เปลี่ยนตอนหัก)
+    original_quantity_g: quantity_g,
     notes: document.getElementById('bn-notes').value.trim(),
     active: document.getElementById('bn-active').checked,
   };
 
-  if (id) await update('beans', { ...data, id });
-  else await add('beans', data);
+  if (id) {
+    // เก็บ original_quantity_g เดิมถ้ามี แต่ถ้า quantity_g เพิ่มขึ้น = restocking → อัปเดต
+    const existing = await get('beans', id);
+    const prevOrig = existing?.original_quantity_g || existing?.quantity_g || 0;
+    data.original_quantity_g = quantity_g >= (existing?.quantity_g || 0)
+      ? quantity_g   // restock หรือแก้ไขตัวเลขซื้อ → อัปเดต
+      : prevOrig;    // แค่แก้ชื่อ/ข้อมูลอื่น → คง original เดิม
+    await update('beans', { ...data, id });
+  } else {
+    await add('beans', data);
+  }
 
   closeModal();
   showToast('✅ บันทึกเรียบร้อย');
@@ -481,6 +506,304 @@ async function deleteBean(id) {
   await renderBeans();
 }
 
+// ===== RESTOCK =====
+function openRestockModal(id) {
+  get('beans', id).then(bean => {
+    if (!bean) return;
+    openModal(`<div class="modal">
+      <div class="modal-header">
+        <h3>🔄 เติมสต็อก — ${escHtml(bean.name)}</h3>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted mb-12">สต็อกปัจจุบัน: <strong>${bean.quantity_g}g</strong> | ต้นทุน/g ล็อตล่าสุด: <strong>${bean.cost_total && bean.original_quantity_g ? (bean.cost_total / bean.original_quantity_g).toFixed(2) + '฿' : '—'}</strong></p>
+        <div class="form-row">
+          <div class="form-group"><label>วันที่ซื้อ</label>
+            <input type="date" id="rs-date" value="${todayISO()}"></div>
+          <div class="form-group"><label>Roast Date ล็อตใหม่</label>
+            <input type="date" id="rs-roastdate" value="${bean.roastDate}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>น้ำหนักที่ซื้อ (กรัม)</label>
+            <input type="number" id="rs-qty" min="1" placeholder="0" oninput="updateRestockSummary()"></div>
+          <div class="form-group"><label>ราคารวมที่จ่าย (฿)</label>
+            <input type="number" id="rs-cost" min="0" placeholder="0" oninput="updateRestockSummary()"></div>
+        </div>
+        <div class="form-group"><label>หมายเหตุ (เช่น ล็อต, ผู้ขาย)</label>
+          <input type="text" id="rs-note" placeholder="เช่น ล็อต 2/2026, สั่งจาก X Roaster"></div>
+        <div class="form-summary" id="rs-summary">
+          <div class="form-summary-row"><span>ต้นทุน/g ล็อตนี้</span><span id="rs-cpg">—</span></div>
+          <div class="form-summary-row"><span>สต็อกรวมหลังเติม</span><span id="rs-total">—</span></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal()">ยกเลิก</button>
+        <button class="btn btn-primary" onclick="saveRestock('${id}', ${bean.quantity_g})">✅ บันทึกการเติมสต็อก</button>
+      </div>
+    </div>`);
+  });
+}
+
+function updateRestockSummary() {
+  const qty = parseFloat(document.getElementById('rs-qty')?.value) || 0;
+  const cost = parseFloat(document.getElementById('rs-cost')?.value) || 0;
+  const currentQty = parseFloat(document.getElementById('rs-total')?.dataset?.current || 0);
+  document.getElementById('rs-cpg').textContent = qty > 0 ? (cost / qty).toFixed(2) + '฿/g' : '—';
+  document.getElementById('rs-total').textContent = qty > 0 ? (qty) + 'g (รวม ' + qty + 'g เพิ่ม)' : '—';
+}
+
+async function saveRestock(id, currentQty) {
+  const date = document.getElementById('rs-date').value;
+  const roastDate = document.getElementById('rs-roastdate').value;
+  const qty = parseFloat(document.getElementById('rs-qty').value) || 0;
+  const cost = parseFloat(document.getElementById('rs-cost').value) || 0;
+  const note = document.getElementById('rs-note').value.trim();
+
+  if (!date || qty <= 0) { showToast('⚠️ ระบุวันที่และน้ำหนัก'); return; }
+
+  const bean = await get('beans', id);
+  const history = bean.purchaseHistory || [];
+
+  // บันทึกล็อตเดิมก่อน ถ้ายังไม่มี history
+  if (history.length === 0 && bean.quantity_g > 0) {
+    history.push({
+      date: bean.createdAt?.slice(0, 10) || date,
+      roastDate: bean.roastDate,
+      quantity_g: bean.original_quantity_g || bean.quantity_g,
+      cost_total: bean.cost_total,
+      cost_per_g: bean.cost_total && (bean.original_quantity_g || bean.quantity_g)
+        ? (bean.cost_total / (bean.original_quantity_g || bean.quantity_g))
+        : 0,
+      note: 'ล็อตแรก',
+    });
+  }
+
+  // เพิ่มล็อตใหม่
+  history.push({
+    date,
+    roastDate,
+    quantity_g: qty,
+    cost_total: cost,
+    cost_per_g: qty > 0 ? cost / qty : 0,
+    note,
+  });
+
+  await update('beans', {
+    ...bean,
+    quantity_g: currentQty + qty,       // เพิ่มสต็อก
+    original_quantity_g: qty,            // ต้นทุน/g คำนวณจากล็อตล่าสุด
+    cost_total: cost,
+    roastDate: roastDate || bean.roastDate,
+    purchaseHistory: history,
+  });
+
+  closeModal();
+  showToast(`✅ เติมสต็อก ${qty}g แล้ว รวม ${currentQty + qty}g`);
+  await renderBeans();
+}
+
+// ===== PURCHASE HISTORY =====
+function viewPurchaseHistory(id) {
+  get('beans', id).then(bean => {
+    if (!bean) return;
+    const history = [...(bean.purchaseHistory || [])].reverse(); // ใหม่ก่อน
+
+    openModal(`<div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>📋 ประวัติการซื้อ — ${escHtml(bean.name)}</h3>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        ${history.length === 0 ? '<p class="text-muted">ยังไม่มีประวัติการซื้อ<br>กด "เติมสต็อก" เพื่อบันทึกล็อตถัดไป</p>' : ''}
+        ${history.length > 0 ? `
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>วันที่ซื้อ</th>
+              <th>Roast Date</th>
+              <th>น้ำหนัก</th>
+              <th>ราคารวม</th>
+              <th>ต้นทุน/g</th>
+              <th>หมายเหตุ</th>
+            </tr></thead>
+            <tbody>
+              ${history.map((h, i) => {
+                const isLatest = i === 0;
+                return `<tr${isLatest ? ' style="background:rgba(200,149,108,0.08)"' : ''}>
+                  <td>${formatDate(h.date)}${isLatest ? ' <span class="badge badge-accent" style="font-size:0.6rem">ล่าสุด</span>' : ''}</td>
+                  <td>${formatDate(h.roastDate)}</td>
+                  <td>${h.quantity_g}g</td>
+                  <td class="money-green">฿${formatMoney(h.cost_total)}</td>
+                  <td class="${isLatest ? 'text-accent fw-bold' : ''}">${h.cost_per_g > 0 ? h.cost_per_g.toFixed(2) + '฿' : '—'}</td>
+                  <td class="muted">${escHtml(h.note || '—')}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div style="margin-top:12px;font-size:0.78rem;color:var(--text-muted)">
+          รวม ${history.length} ล็อต |
+          ต้นทุน/g ต่ำสุด: <span class="text-green">${Math.min(...history.map(h => h.cost_per_g)).toFixed(2)}฿</span> |
+          สูงสุด: <span class="text-red">${Math.max(...history.map(h => h.cost_per_g)).toFixed(2)}฿</span>
+        </div>
+        ` : ''}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal();openRestockModal('${id}')">+ เติมสต็อก</button>
+        <button class="btn btn-ghost" onclick="closeModal()">ปิด</button>
+      </div>
+    </div>`);
+  });
+}
+
+// ===== COLD BREW BATCH CALCULATOR =====
+async function openColdBrewCalcModal() {
+  const allBeans = await getAll('beans');
+  const activeBeans = allBeans.filter(b => b.active && b.quantity_g > 0);
+
+  const beanOpts = `<option value="">— เลือกเมล็ดกาแฟ —</option>` +
+    activeBeans.map(b => {
+      const origQty = b.original_quantity_g || b.quantity_g;
+      const costPerG = b.cost_total && origQty ? (b.cost_total / origQty).toFixed(2) : '0';
+      return `<option value="${b.id}" data-cpg="${costPerG}">${escHtml(b.name)} (${costPerG}฿/g)</option>`;
+    }).join('');
+
+  openModal(`<div class="modal">
+    <div class="modal-header">
+      <h3>🧮 คำนวณต้นทุน Cold Brew</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>เมล็ดกาแฟที่ใช้</label>
+        <select id="cb-bean" onchange="calcColdBrew()">${beanOpts}</select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>ปริมาณเมล็ดที่ใช้ (g)</label>
+          <input type="number" id="cb-grams" value="100" min="1" oninput="calcColdBrew()">
+        </div>
+        <div class="form-group">
+          <label>ต้นทุนเมล็ด/g (฿)</label>
+          <input type="number" id="cb-cpg" value="" step="0.01" min="0" oninput="calcColdBrew()" placeholder="ดึงจากเมล็ดอัตโนมัติ">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>น้ำกาแฟหลังกรอง (ml)</label>
+          <input type="number" id="cb-liquid" value="800" min="1" oninput="calcColdBrew()">
+        </div>
+        <div class="form-group">
+          <label>ขนาดขวดที่ขาย (ml)</label>
+          <input type="number" id="cb-bottle" value="225" min="1" oninput="calcColdBrew()">
+        </div>
+      </div>
+
+      <div class="calc-result-box" id="cb-result" style="
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px;
+        margin-top: 12px;
+        min-height: 80px;
+      ">
+        <div class="text-muted" style="font-size:0.85rem">กรอกข้อมูลด้านบนเพื่อคำนวณ...</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" id="cb-save-btn" onclick="saveColdBrewCost()" style="display:none">💾 บันทึกเป็นต้นทุน Cold Brew ใน Settings</button>
+      <button class="btn btn-ghost" onclick="closeModal()">ปิด</button>
+    </div>
+  </div>`);
+
+  calcColdBrew();
+
+  // Mark cpg field as user-edited if they type in it manually
+  setTimeout(() => {
+    const cpgEl = document.getElementById('cb-cpg');
+    if (cpgEl) cpgEl.addEventListener('input', () => { cpgEl._userEdited = true; });
+  }, 50);
+}
+
+function calcColdBrew() {
+  const beanSel = document.getElementById('cb-bean');
+  const gramsEl = document.getElementById('cb-grams');
+  const cpgEl = document.getElementById('cb-cpg');
+  const liquidEl = document.getElementById('cb-liquid');
+  const bottleEl = document.getElementById('cb-bottle');
+  const resultEl = document.getElementById('cb-result');
+  const saveBtn = document.getElementById('cb-save-btn');
+  if (!resultEl) return;
+
+  // Auto-fill cost/g from selected bean
+  if (beanSel && beanSel.value) {
+    const opt = beanSel.options[beanSel.selectedIndex];
+    const autoCpg = opt.dataset.cpg;
+    if (autoCpg && !cpgEl._userEdited) {
+      cpgEl.value = autoCpg;
+    }
+  }
+
+  const grams = parseFloat(gramsEl?.value) || 0;
+  const cpg = parseFloat(cpgEl?.value) || 0;
+  const liquid = parseFloat(liquidEl?.value) || 0;
+  const bottle = parseFloat(bottleEl?.value) || 0;
+
+  if (grams <= 0 || liquid <= 0 || bottle <= 0) {
+    resultEl.innerHTML = '<div class="text-muted" style="font-size:0.85rem">กรอกข้อมูลให้ครบถ้วนเพื่อคำนวณ</div>';
+    if (saveBtn) saveBtn.style.display = 'none';
+    return;
+  }
+
+  const bottles = Math.floor(liquid / bottle);
+  if (bottles === 0) {
+    resultEl.innerHTML = '<div class="text-red" style="font-size:0.85rem">⚠️ ปริมาณน้ำกาแฟน้อยกว่าขนาดขวด ได้ 0 ขวด</div>';
+    if (saveBtn) saveBtn.style.display = 'none';
+    return;
+  }
+
+  const beanCost = grams * cpg;
+  const costPerBottle = beanCost / bottles;
+  const leftoverMl = liquid - (bottles * bottle);
+
+  resultEl.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <div class="text-muted" style="font-size:0.72rem;margin-bottom:2px">จำนวนขวดที่ได้</div>
+        <div style="font-size:1.6rem;font-weight:700;color:var(--accent)">${bottles} <span style="font-size:0.9rem;font-weight:400">ขวด</span></div>
+      </div>
+      <div>
+        <div class="text-muted" style="font-size:0.72rem;margin-bottom:2px">ต้นทุนต่อขวด</div>
+        <div style="font-size:1.6rem;font-weight:700;color:var(--green)">฿${costPerBottle.toFixed(2)}</div>
+      </div>
+    </div>
+    <div style="font-size:0.78rem;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px;display:flex;flex-wrap:wrap;gap:12px">
+      <span>🫘 ต้นทุนเมล็ด: <strong>฿${beanCost.toFixed(2)}</strong></span>
+      <span>🧊 น้ำหลังกรอง: <strong>${liquid} ml</strong></span>
+      <span>🍶 ขนาดขวด: <strong>${bottle} ml</strong></span>
+      ${leftoverMl > 0 ? `<span class="text-muted">เหลือ ${leftoverMl} ml (ไม่ครบขวด)</span>` : ''}
+    </div>
+  `;
+
+  if (saveBtn) {
+    saveBtn.style.display = '';
+    saveBtn.dataset.cost = costPerBottle.toFixed(2);
+  }
+}
+
+async function saveColdBrewCost() {
+  const saveBtn = document.getElementById('cb-save-btn');
+  const cost = parseFloat(saveBtn?.dataset.cost);
+  if (!cost || isNaN(cost)) return;
+
+  const settings = await get('settings', 'main') || {};
+  await update('settings', { ...settings, id: 'main', coldBrewCostPerBottle: cost });
+  appSettings = await get('settings', 'main');
+
+  showToast(`✅ บันทึกต้นทุน Cold Brew ฿${cost.toFixed(2)}/ขวด แล้ว`);
+  closeModal();
+}
+
 // ===== SALES =====
 async function renderSales() {
   const [allSales, allBeans, allCustomers] = await Promise.all([
@@ -509,6 +832,7 @@ async function renderSales() {
 
     <div class="product-btns">
       ${PRODUCTS.map(p => `<button class="btn btn-outline" onclick="openSaleModal('${p.key}')">${p.icon} ${p.label}</button>`).join('')}
+      <button class="btn btn-ghost" onclick="openColdBrewCalcModal()" style="border-style:dashed;color:var(--text-muted)">🧮 คำนวณต้นทุน Cold Brew</button>
     </div>
 
     <div class="dash-section mb-12">

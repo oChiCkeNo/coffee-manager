@@ -102,10 +102,10 @@ function queryByIndex(storeName, indexName, value) {
 // ===== Default seed data =====
 
 const DEFAULT_BEANS = [
-  { name: 'Brazil Santos', origin: 'Brazil', process: 'Natural', roastLevel: 'กลาง-เข้ม', roastDate: '2026-04-01', quantity_g: 500, cost_total: 250, notes: 'Cold brew / กาแฟนม', active: true },
-  { name: 'Ethiopia Yirgacheffe Natural', origin: 'Ethiopia', process: 'Natural', roastLevel: 'อ่อน', roastDate: '2026-04-15', quantity_g: 400, cost_total: 560, notes: 'ทดลองเปรียบเทียบ processing', active: true },
-  { name: 'Ethiopia Aricha Washed', origin: 'Ethiopia', process: 'Washed', roastLevel: 'อ่อน', roastDate: '2026-04-15', quantity_g: 400, cost_total: 560, notes: 'ทดลองเปรียบเทียบ processing', active: true },
-  { name: 'Honduras Whiskey Barrel Aged', origin: 'Honduras', process: 'Barrel Aged', roastLevel: 'อ่อน', roastDate: '2026-04-15', quantity_g: 100, cost_total: 350, notes: 'รอทดลอง', active: true },
+  { name: 'Brazil Santos', origin: 'Brazil', process: 'Natural', roastLevel: 'กลาง-เข้ม', roastDate: '2026-04-01', quantity_g: 500, original_quantity_g: 500, cost_total: 250, notes: 'Cold brew / กาแฟนม', active: true },
+  { name: 'Ethiopia Yirgacheffe Natural', origin: 'Ethiopia', process: 'Natural', roastLevel: 'อ่อน', roastDate: '2026-04-15', quantity_g: 400, original_quantity_g: 400, cost_total: 560, notes: 'ทดลองเปรียบเทียบ processing', active: true },
+  { name: 'Ethiopia Aricha Washed', origin: 'Ethiopia', process: 'Washed', roastLevel: 'อ่อน', roastDate: '2026-04-15', quantity_g: 400, original_quantity_g: 400, cost_total: 560, notes: 'ทดลองเปรียบเทียบ processing', active: true },
+  { name: 'Honduras Whiskey Barrel Aged', origin: 'Honduras', process: 'Barrel Aged', roastLevel: 'อ่อน', roastDate: '2026-04-15', quantity_g: 100, original_quantity_g: 100, cost_total: 350, notes: 'รอทดลอง', active: true },
 ];
 
 const DEFAULT_SUPPLIES = [
