@@ -1,7 +1,7 @@
 // db.js — IndexedDB wrapper for CoffeeManagerDB
 
 const DB_NAME = 'CoffeeManagerDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 let _db = null;
 
 function openDB() {
@@ -35,6 +35,11 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains('settings')) {
         db.createObjectStore('settings', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('coldbrewBatches')) {
+        const s = db.createObjectStore('coldbrewBatches', { keyPath: 'id' });
+        s.createIndex('by-status', 'status', { unique: false });
+        s.createIndex('by-expiry', 'expiryDate', { unique: false });
       }
     };
 
@@ -125,6 +130,8 @@ const DEFAULT_SETTINGS = {
   dripCostPerCup: 30,
   latteCostPerCup: 25,
   monthlyTarget: 50000,
+  coldBrewShelfDays: 14,
+  coldBrewAlertDays: 2,
 };
 
 async function seedDefaultData() {
@@ -151,7 +158,7 @@ async function initDB() {
 }
 
 async function clearAllData() {
-  const stores = ['beans', 'customers', 'sales', 'supplies', 'expenses', 'settings'];
+  const stores = ['beans', 'customers', 'sales', 'supplies', 'expenses', 'settings', 'coldbrewBatches'];
   const db = await openDB();
   await new Promise((resolve, reject) => {
     const tx = db.transaction(stores, 'readwrite');
@@ -163,7 +170,7 @@ async function clearAllData() {
 }
 
 async function exportAllData() {
-  const stores = ['beans', 'customers', 'sales', 'supplies', 'expenses', 'settings'];
+  const stores = ['beans', 'customers', 'sales', 'supplies', 'expenses', 'settings', 'coldbrewBatches'];
   const data = {};
   for (const s of stores) data[s] = await getAll(s);
   return data;

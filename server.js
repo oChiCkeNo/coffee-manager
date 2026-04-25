@@ -86,7 +86,7 @@ const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
 
-const STORES = ['beans', 'customers', 'sales', 'supplies', 'expenses', 'settings'];
+const STORES = ['beans', 'customers', 'sales', 'supplies', 'expenses', 'settings', 'coldbrewBatches'];
 STORES.forEach(store => {
   db.prepare(`CREATE TABLE IF NOT EXISTS [${store}] (
     id   TEXT PRIMARY KEY,

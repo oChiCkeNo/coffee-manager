@@ -87,6 +87,8 @@ const DEFAULT_SETTINGS = {
   coldBrewPrice: 150, dripHotPrice: 120, dripIcedPrice: 130, lattePrice: 80,
   coldBrewCostPerBottle: 55, dripCostPerCup: 30, latteCostPerCup: 25,
   monthlyTarget: 50000,
+  coldBrewShelfDays: 14,
+  coldBrewAlertDays: 2,
 };
 
 async function seedDefaultData() {

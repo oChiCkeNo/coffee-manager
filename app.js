@@ -186,13 +186,14 @@ function closeModal() {
 
 // ===== NAV =====
 const TABS = [
-  { key: 'dashboard', label: 'Dashboard', icon: '📊' },
-  { key: 'beans',     label: 'สต็อกเมล็ด', icon: '🫘' },
-  { key: 'sales',     label: 'การขาย',     icon: '💰' },
-  { key: 'customers', label: 'ลูกค้า',     icon: '👥' },
-  { key: 'supplies',  label: 'สิ้นเปลือง', icon: '📦' },
-  { key: 'expenses',  label: 'รายจ่าย',   icon: '🧾' },
-  { key: 'settings',  label: 'ตั้งค่า',   icon: '⚙️' },
+  { key: 'dashboard',  label: 'Dashboard',   icon: '📊' },
+  { key: 'beans',      label: 'สต็อกเมล็ด', icon: '🫘' },
+  { key: 'readystock', label: 'พร้อมขาย',   icon: '🧊' },
+  { key: 'sales',      label: 'การขาย',      icon: '💰' },
+  { key: 'customers',  label: 'ลูกค้า',      icon: '👥' },
+  { key: 'supplies',   label: 'สิ้นเปลือง', icon: '📦' },
+  { key: 'expenses',   label: 'รายจ่าย',    icon: '🧾' },
+  { key: 'settings',   label: 'ตั้งค่า',    icon: '⚙️' },
 ];
 
 function renderNav() {
@@ -222,9 +223,10 @@ async function switchTab(tab) {
   document.getElementById('content').scrollTop = 0;
 
   switch (tab) {
-    case 'dashboard': await renderDashboard(); break;
-    case 'beans':     await renderBeans();     break;
-    case 'sales':     await renderSales();     break;
+    case 'dashboard':  await renderDashboard();  break;
+    case 'beans':      await renderBeans();      break;
+    case 'readystock': await renderReadyStock(); break;
+    case 'sales':      await renderSales();      break;
     case 'customers': await renderCustomers(); break;
     case 'supplies':  await renderSupplies();  break;
     case 'expenses':  await renderExpenses();  break;
@@ -232,10 +234,29 @@ async function switchTab(tab) {
   }
 }
 
+// ===== COLD BREW STATUS =====
+function getColdBrewStatus(expiryDate) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const exp = new Date(expiryDate + 'T00:00:00');
+  const daysLeft = Math.round((exp - today) / 86400000);
+  const alertDays = appSettings?.coldBrewAlertDays ?? 2;
+  if (daysLeft < 0)          return { label: `หมดอายุแล้ว ${Math.abs(daysLeft)} วัน`, cls: 'badge-red',    daysLeft, urgent: true };
+  if (daysLeft === 0)        return { label: 'หมดอายุวันนี้',                           cls: 'badge-red',    daysLeft, urgent: true };
+  if (daysLeft <= alertDays) return { label: `หมดอายุใน ${daysLeft} วัน`,              cls: 'badge-orange', daysLeft, urgent: true };
+  if (daysLeft <= 5)         return { label: `เหลือ ${daysLeft} วัน`,                  cls: 'badge-yellow', daysLeft, urgent: false };
+  return                            { label: `เหลือ ${daysLeft} วัน`,                  cls: 'badge-green',  daysLeft, urgent: false };
+}
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 // ===== DASHBOARD =====
 async function renderDashboard() {
-  const [allSales, allExpenses, allBeans, allSupplies] = await Promise.all([
-    getAll('sales'), getAll('expenses'), getAll('beans'), getAll('supplies'),
+  const [allSales, allExpenses, allBeans, allSupplies, allBatches] = await Promise.all([
+    getAll('sales'), getAll('expenses'), getAll('beans'), getAll('supplies'), getAll('coldbrewBatches'),
   ]);
 
   const today = todayISO();
@@ -277,6 +298,7 @@ async function renderDashboard() {
   // Alerts
   const lowSupplies = allSupplies.filter(s => s.quantity <= s.reorderLevel);
   const problemBeans = allBeans.filter(b => b.active && b.quantity_g > 0 && ['Fading', 'Expired'].some(x => getPeakStatus(b.roastDate, b.roastLevel).label.startsWith(x)));
+  const urgentBatches = allBatches.filter(b => b.status !== 'archived' && (b.remaining900 > 0 || b.remaining500 > 0) && getColdBrewStatus(b.expiryDate).urgent);
 
   const profitClass = monthProfit >= 0 ? 'green' : 'red';
 
@@ -355,8 +377,13 @@ async function renderDashboard() {
 
     <div class="dash-section">
       <div class="dash-section-title">แจ้งเตือน</div>
-      ${lowSupplies.length === 0 && problemBeans.length === 0 ?
+      ${lowSupplies.length === 0 && problemBeans.length === 0 && urgentBatches.length === 0 ?
         `<div class="alert-row alert-ok">✅ ไม่มีรายการเร่งด่วน</div>` : ''}
+      ${urgentBatches.map(b => {
+        const st = getColdBrewStatus(b.expiryDate);
+        const tot = (b.remaining900 || 0) + (b.remaining500 || 0);
+        return `<div class="alert-row alert-bean" style="cursor:pointer" onclick="switchTab('readystock')">🧊 <strong>Cold Brew</strong> ${tot} ขวด — ${st.label}</div>`;
+      }).join('')}
       ${lowSupplies.map(s => `<div class="alert-row alert-supply">📦 <strong>${escHtml(s.name)}</strong> เหลือ ${s.quantity} ${s.unit} (ต่ำกว่า reorder ${s.reorderLevel})</div>`).join('')}
       ${problemBeans.map(b => {
         const ps = getPeakStatus(b.roastDate, b.roastLevel);
@@ -724,6 +751,330 @@ function viewPurchaseHistory(id) {
       </div>
     </div>`);
   });
+}
+
+// ===== READY STOCK =====
+async function renderReadyStock() {
+  const [allBatches, allBeans] = await Promise.all([getAll('coldbrewBatches'), getAll('beans')]);
+  const s = appSettings || {};
+  const beanMap = Object.fromEntries(allBeans.map(b => [b.id, b.name]));
+
+  const active = allBatches
+    .filter(b => b.status !== 'archived')
+    .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate)); // ใกล้หมดก่อน
+
+  const archived = allBatches.filter(b => b.status === 'archived');
+
+  const total900 = active.reduce((s, b) => s + (b.remaining900 || 0), 0);
+  const total500 = active.reduce((s, b) => s + (b.remaining500 || 0), 0);
+  const urgent = active.filter(b => getColdBrewStatus(b.expiryDate).urgent);
+
+  const statusBorderColor = st => st.daysLeft < 0 ? 'var(--red)' : st.daysLeft <= (s.coldBrewAlertDays ?? 2) ? 'var(--orange,#f59e0b)' : st.daysLeft <= 5 ? 'var(--yellow,#eab308)' : 'var(--green)';
+
+  const renderBatchCard = b => {
+    const st = getColdBrewStatus(b.expiryDate);
+    const bColor = statusBorderColor(st);
+    const totalOrig = (b.bottles900 || 0) + (b.bottles500 || 0);
+    const totalLeft = (b.remaining900 || 0) + (b.remaining500 || 0);
+    const isEmpty = totalLeft === 0;
+    return `<div style="background:var(--card);border-radius:12px;border-left:4px solid ${bColor};padding:14px 16px;margin-bottom:10px;${isEmpty ? 'opacity:0.55' : ''}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+        <div>
+          <div style="font-weight:700;font-size:0.95rem">Batch ${formatDate(b.brewDate)}</div>
+          <div style="font-size:0.78rem;color:var(--text-muted);margin-top:2px">
+            ${b.beanName ? `🫘 ${escHtml(b.beanName)}${b.gramsUsed ? ` · ${b.gramsUsed}g` : ''}` : ''}
+            ${b.notes ? ` · ${escHtml(b.notes)}` : ''}
+          </div>
+        </div>
+        <span class="badge ${st.cls}">${st.label}</span>
+      </div>
+      <div style="display:flex;gap:20px;margin-bottom:12px">
+        <div style="text-align:center">
+          <div style="font-size:2rem;font-weight:700;color:var(--accent);line-height:1">${b.remaining900 || 0}</div>
+          <div style="font-size:0.72rem;color:var(--text-muted)">🧊 ขวด 900ml</div>
+          <div style="font-size:0.68rem;color:var(--text-muted)">(จาก ${b.bottles900 || 0})</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:2rem;font-weight:700;color:var(--accent);line-height:1">${b.remaining500 || 0}</div>
+          <div style="font-size:0.72rem;color:var(--text-muted)">🍶 ขวด 500ml</div>
+          <div style="font-size:0.68rem;color:var(--text-muted)">(จาก ${b.bottles500 || 0})</div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:center;font-size:0.78rem;color:var(--text-muted)">
+          <div>📅 ทำ: ${formatDate(b.brewDate)}</div>
+          <div>⏰ หมดอายุ: ${formatDate(b.expiryDate)}</div>
+          ${b.shelfDays ? `<div>🗓️ เก็บได้: ${b.shelfDays} วัน</div>` : ''}
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${!isEmpty ? `<button class="btn btn-primary btn-sm" onclick="openDeductBatchModal('${b.id}')">หัก</button>` : ''}
+        <button class="btn btn-outline btn-sm" onclick="viewBatchHistory('${b.id}')">📋 ประวัติ</button>
+        <button class="btn btn-ghost btn-sm" onclick="archiveBatch('${b.id}')">เก็บ Archive</button>
+        <button class="btn btn-danger btn-sm btn-icon" onclick="deleteBatch('${b.id}')">🗑️</button>
+      </div>
+    </div>`;
+  };
+
+  document.getElementById('tab-readystock').innerHTML = `
+    <div class="page-header">
+      <div class="page-title">🧊 สต็อกพร้อมขาย</div>
+      <button class="btn btn-primary" onclick="openNewBatchModal()">+ Batch ใหม่</button>
+    </div>
+
+    <div class="metrics-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
+      <div class="metric-card">
+        <div class="metric-label">🧊 900ml คงเหลือ</div>
+        <div class="metric-value accent">${total900} <span style="font-size:1rem">ขวด</span></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">🍶 500ml คงเหลือ</div>
+        <div class="metric-value accent">${total500} <span style="font-size:1rem">ขวด</span></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">⚠️ ต้องระวัง</div>
+        <div class="metric-value ${urgent.length > 0 ? 'red' : 'green'}">${urgent.length} <span style="font-size:1rem">batch</span></div>
+      </div>
+    </div>
+
+    ${active.length === 0 ? `<div class="empty-state" style="text-align:center;padding:40px;color:var(--text-muted)">
+      <div style="font-size:3rem;margin-bottom:8px">🧊</div>
+      <div>ยังไม่มีสต็อก Cold Brew<br>กด "+ Batch ใหม่" เพื่อบันทึก</div>
+    </div>` : ''}
+
+    ${active.map(renderBatchCard).join('')}
+
+    ${archived.length > 0 ? `
+    <details style="margin-top:16px">
+      <summary style="cursor:pointer;color:var(--text-muted);font-size:0.85rem;padding:8px 0">
+        📁 Archive (${archived.length} batch)
+      </summary>
+      <div style="margin-top:8px">
+        ${archived.map(renderBatchCard).join('')}
+      </div>
+    </details>` : ''}
+  `;
+}
+
+async function openNewBatchModal() {
+  const allBeans = await getAll('beans');
+  const activeBeans = allBeans.filter(b => b.active && b.quantity_g > 0);
+  const s = appSettings || {};
+  const defaultShelfDays = s.coldBrewShelfDays || 14;
+
+  const beanOpts = `<option value="">— ไม่ระบุ —</option>` +
+    activeBeans.map(b => {
+      const origQty = b.original_quantity_g || b.quantity_g;
+      const cpg = b.cost_total && origQty ? (b.cost_total / origQty).toFixed(2) : '0';
+      return `<option value="${b.id}" data-cpg="${cpg}" data-name="${escHtml(b.name)}">${escHtml(b.name)} (${b.quantity_g}g)</option>`;
+    }).join('');
+
+  openModal(`<div class="modal">
+    <div class="modal-header">
+      <h3>🧊 บันทึก Cold Brew Batch</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label>วันที่ทำ</label>
+          <input type="date" id="nb-brew-date" value="${todayISO()}" oninput="updateNBExpiry()"></div>
+        <div class="form-group"><label>เก็บได้ (วัน)</label>
+          <input type="number" id="nb-shelf-days" value="${defaultShelfDays}" min="1" max="60" oninput="updateNBExpiry()"></div>
+      </div>
+      <div class="form-group"><label>วันหมดอายุ</label>
+        <input type="date" id="nb-expiry" style="color:var(--accent);font-weight:700"></div>
+      <div class="form-group"><label>เมล็ดที่ใช้ (ระบุเพื่อหักสต็อกอัตโนมัติ)</label>
+        <select id="nb-bean-id" onchange="onNBBeanChange()">${beanOpts}</select></div>
+      <div class="form-row">
+        <div class="form-group"><label>ปริมาณเมล็ด (g)</label>
+          <input type="number" id="nb-grams" placeholder="ไม่บังคับ" min="1"></div>
+        <div class="form-group"><label>ต้นทุน/g (฿)</label>
+          <input type="number" id="nb-cpg" placeholder="อัตโนมัติจากเมล็ด" step="0.01" min="0"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>🧊 จำนวนขวด 900ml</label>
+          <input type="number" id="nb-qty900" value="0" min="0"></div>
+        <div class="form-group"><label>🍶 จำนวนขวด 500ml</label>
+          <input type="number" id="nb-qty500" value="0" min="0"></div>
+      </div>
+      <div class="form-group"><label>หมายเหตุ</label>
+        <input type="text" id="nb-notes" placeholder="เช่น Ethiopia Batch #3"></div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <input type="checkbox" id="nb-deduct-bean" checked style="width:auto;margin:0">
+        <label for="nb-deduct-bean" style="margin:0;cursor:pointer;font-size:0.88rem">หักสต็อกเมล็ดอัตโนมัติเมื่อบันทึก</label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="saveNewBatch()">✅ บันทึก Batch</button>
+      <button class="btn btn-ghost" onclick="closeModal()">ยกเลิก</button>
+    </div>
+  </div>`);
+  updateNBExpiry();
+}
+
+function updateNBExpiry() {
+  const brewDate = document.getElementById('nb-brew-date')?.value;
+  const shelfDays = parseInt(document.getElementById('nb-shelf-days')?.value) || 14;
+  if (brewDate) {
+    const expEl = document.getElementById('nb-expiry');
+    if (expEl) expEl.value = addDays(brewDate, shelfDays);
+  }
+}
+
+function onNBBeanChange() {
+  const sel = document.getElementById('nb-bean-id');
+  const cpgEl = document.getElementById('nb-cpg');
+  if (!sel || !cpgEl) return;
+  const opt = sel.options[sel.selectedIndex];
+  const cpg = opt?.dataset?.cpg;
+  if (cpg && parseFloat(cpg) > 0) cpgEl.value = cpg;
+  else cpgEl.value = '';
+}
+
+async function saveNewBatch() {
+  const brewDate  = document.getElementById('nb-brew-date').value;
+  const expiryDate = document.getElementById('nb-expiry').value;
+  const shelfDays = parseInt(document.getElementById('nb-shelf-days').value) || 14;
+  const beanSel   = document.getElementById('nb-bean-id');
+  const beanId    = beanSel.value || null;
+  const beanName  = beanId ? beanSel.options[beanSel.selectedIndex]?.dataset?.name || '' : '';
+  const gramsUsed = parseFloat(document.getElementById('nb-grams').value) || 0;
+  const cpg       = parseFloat(document.getElementById('nb-cpg').value) || 0;
+  const qty900    = parseInt(document.getElementById('nb-qty900').value) || 0;
+  const qty500    = parseInt(document.getElementById('nb-qty500').value) || 0;
+  const notes     = document.getElementById('nb-notes').value.trim();
+  const doDeduct  = document.getElementById('nb-deduct-bean').checked;
+
+  if (!brewDate || !expiryDate) { showToast('⚠️ กรุณากรอกวันที่ให้ครบ'); return; }
+  if (qty900 === 0 && qty500 === 0) { showToast('⚠️ กรุณาใส่จำนวนขวด'); return; }
+
+  const batch = {
+    brewDate, expiryDate, shelfDays,
+    beanId: beanId || '', beanName, gramsUsed, cpg,
+    bottles900: qty900, remaining900: qty900,
+    bottles500: qty500, remaining500: qty500,
+    notes, status: 'active',
+    deductHistory: [],
+  };
+
+  await add('coldbrewBatches', batch);
+
+  // หักสต็อกเมล็ด
+  if (doDeduct && beanId && gramsUsed > 0) {
+    const bean = await get('beans', beanId);
+    if (bean) {
+      const newQty = Math.max(0, (bean.quantity_g || 0) - gramsUsed);
+      await update('beans', { ...bean, quantity_g: newQty });
+    }
+  }
+
+  closeModal();
+  showToast(`✅ บันทึก Batch แล้ว (900ml×${qty900} / 500ml×${qty500})`);
+  await renderReadyStock();
+}
+
+async function openDeductBatchModal(id) {
+  const batch = await get('coldbrewBatches', id);
+  if (!batch) return;
+  openModal(`<div class="modal">
+    <div class="modal-header">
+      <h3>หักสต็อก — ${formatDate(batch.brewDate)}</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label>🧊 หัก 900ml (มี ${batch.remaining900} ขวด)</label>
+          <input type="number" id="dq-900" value="0" min="0" max="${batch.remaining900}"></div>
+        <div class="form-group"><label>🍶 หัก 500ml (มี ${batch.remaining500} ขวด)</label>
+          <input type="number" id="dq-500" value="0" min="0" max="${batch.remaining500}"></div>
+      </div>
+      <div class="form-group"><label>หมายเหตุ</label>
+        <input type="text" id="dq-note" placeholder="เช่น ขาย LINE OA 3 ขวด"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="saveDeductBatch('${id}')">✅ ยืนยันหัก</button>
+      <button class="btn btn-ghost" onclick="closeModal()">ยกเลิก</button>
+    </div>
+  </div>`);
+}
+
+async function saveDeductBatch(id) {
+  const batch = await get('coldbrewBatches', id);
+  if (!batch) return;
+  const d900 = parseInt(document.getElementById('dq-900').value) || 0;
+  const d500 = parseInt(document.getElementById('dq-500').value) || 0;
+  const note = document.getElementById('dq-note').value.trim();
+
+  if (d900 === 0 && d500 === 0) { showToast('⚠️ กรุณาใส่จำนวนที่หัก'); return; }
+  if (d900 > batch.remaining900) { showToast('⚠️ หักเกินจำนวนขวด 900ml ที่มี'); return; }
+  if (d500 > batch.remaining500) { showToast('⚠️ หักเกินจำนวนขวด 500ml ที่มี'); return; }
+
+  const entry = { date: todayISO(), qty900: d900, qty500: d500, note };
+  const history = [...(batch.deductHistory || []), entry];
+  const newR900 = batch.remaining900 - d900;
+  const newR500 = batch.remaining500 - d500;
+
+  await update('coldbrewBatches', {
+    ...batch,
+    remaining900: newR900,
+    remaining500: newR500,
+    deductHistory: history,
+    status: newR900 === 0 && newR500 === 0 ? 'depleted' : 'active',
+  });
+  closeModal();
+  showToast(`✅ หักแล้ว (900ml −${d900} / 500ml −${d500})`);
+  await renderReadyStock();
+}
+
+function viewBatchHistory(id) {
+  get('coldbrewBatches', id).then(batch => {
+    if (!batch) return;
+    const hist = [...(batch.deductHistory || [])].reverse();
+    openModal(`<div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>📋 ประวัติ — ${formatDate(batch.brewDate)}</h3>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;gap:16px;margin-bottom:14px;font-size:0.85rem">
+          <span>🧊 900ml: เหลือ <strong>${batch.remaining900}</strong>/${batch.bottles900} ขวด</span>
+          <span>🍶 500ml: เหลือ <strong>${batch.remaining500}</strong>/${batch.bottles500} ขวด</span>
+        </div>
+        ${hist.length === 0 ? '<p class="text-muted">ยังไม่มีประวัติการหัก</p>' : `
+        <div class="table-wrap"><table>
+          <thead><tr><th>วันที่</th><th>900ml</th><th>500ml</th><th>หมายเหตุ</th></tr></thead>
+          <tbody>
+            ${hist.map(h => `<tr>
+              <td>${formatDate(h.date)}</td>
+              <td>${h.qty900 > 0 ? '−'+h.qty900+' ขวด' : '—'}</td>
+              <td>${h.qty500 > 0 ? '−'+h.qty500+' ขวด' : '—'}</td>
+              <td class="muted">${escHtml(h.note || '—')}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal()">ปิด</button>
+      </div>
+    </div>`);
+  });
+}
+
+async function archiveBatch(id) {
+  if (!confirm('ย้ายไป Archive?')) return;
+  const batch = await get('coldbrewBatches', id);
+  if (!batch) return;
+  await update('coldbrewBatches', { ...batch, status: 'archived' });
+  showToast('📁 Archive แล้ว');
+  await renderReadyStock();
+}
+
+async function deleteBatch(id) {
+  if (!confirm('ลบ Batch นี้ถาวร?')) return;
+  if (!await requireAdmin()) return;
+  try {
+    await remove('coldbrewBatches', id);
+    showToast('ลบแล้ว');
+    await renderReadyStock();
+  } catch(e) { if (!handleAdminError(e)) throw e; }
 }
 
 // ===== COLD BREW BATCH CALCULATOR =====
@@ -1702,6 +2053,16 @@ async function renderSettings() {
     </div>
 
     <div class="settings-section">
+      <h3>🧊 Cold Brew</h3>
+      <div class="settings-grid-2">
+        <div class="form-group"><label>อายุการเก็บ (วัน, ค่าเริ่มต้น)</label>
+          <input type="number" id="set-cb-shelf" value="${s.coldBrewShelfDays || 14}" min="1" max="60"></div>
+        <div class="form-group"><label>แจ้งเตือนล่วงหน้า (วัน)</label>
+          <input type="number" id="set-cb-alert" value="${s.coldBrewAlertDays ?? 2}" min="0" max="14"></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h3>เป้าหมาย</h3>
       <div class="form-group"><label>เป้ารายได้/เดือน (฿)</label>
         <input type="number" id="set-target" value="${s.monthlyTarget || 50000}" min="0"></div>
@@ -1752,6 +2113,9 @@ async function saveSettings() {
     dripCostPerCup: parseFloat(document.getElementById('set-drip-cost').value) || 0,
     latteCostPerCup: parseFloat(document.getElementById('set-latte-cost').value) || 0,
     monthlyTarget: parseFloat(document.getElementById('set-target').value) || 0,
+    coldBrewShelfDays: parseInt(document.getElementById('set-cb-shelf').value) || 14,
+    coldBrewAlertDays: parseInt(document.getElementById('set-cb-alert').value) ?? 2,
+    ...(appSettings?.coldBrewHistory ? { coldBrewHistory: appSettings.coldBrewHistory } : {}),
   };
   await update('settings', appSettings);
   showToast('บันทึกการตั้งค่าเรียบร้อย ✅');
