@@ -711,7 +711,8 @@ async function openColdBrewCalcModal() {
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-primary" id="cb-save-btn" onclick="saveColdBrewCost()" style="display:none">💾 บันทึกเป็นต้นทุน Cold Brew ใน Settings</button>
+      <button class="btn btn-primary" id="cb-save-btn" onclick="saveColdBrewCost()" style="display:none">💾 บันทึก</button>
+      <button class="btn btn-outline" onclick="closeModal();viewColdBrewHistory()">📋 ดูประวัติ</button>
       <button class="btn btn-ghost" onclick="closeModal()">ปิด</button>
     </div>
   </div>`);
@@ -788,6 +789,20 @@ function calcColdBrew() {
   if (saveBtn) {
     saveBtn.style.display = '';
     saveBtn.dataset.cost = costPerBottle.toFixed(2);
+    // เก็บข้อมูลครบสำหรับบันทึก history
+    const beanSel2 = document.getElementById('cb-bean');
+    const beanName = beanSel2?.options[beanSel2.selectedIndex]?.text?.split(' (')[0] || '—';
+    saveBtn.dataset.snapshot = JSON.stringify({
+      beanId: beanSel2?.value || '',
+      beanName,
+      grams,
+      cpg,
+      liquidMl: liquid,
+      bottleMl: bottle,
+      bottles,
+      beanCost: parseFloat(beanCost.toFixed(2)),
+      costPerBottle: parseFloat(costPerBottle.toFixed(2)),
+    });
   }
 }
 
@@ -796,12 +811,75 @@ async function saveColdBrewCost() {
   const cost = parseFloat(saveBtn?.dataset.cost);
   if (!cost || isNaN(cost)) return;
 
+  const snapshot = saveBtn.dataset.snapshot ? JSON.parse(saveBtn.dataset.snapshot) : {};
+  const entry = {
+    ...snapshot,
+    date: todayISO(),
+    savedAt: new Date().toISOString(),
+  };
+
   const settings = await get('settings', 'main') || {};
-  await update('settings', { ...settings, id: 'main', coldBrewCostPerBottle: cost });
+  const history = Array.isArray(settings.coldBrewHistory) ? settings.coldBrewHistory : [];
+  history.push(entry);
+
+  await update('settings', { ...settings, id: 'main', coldBrewCostPerBottle: cost, coldBrewHistory: history });
   appSettings = await get('settings', 'main');
 
   showToast(`✅ บันทึกต้นทุน Cold Brew ฿${cost.toFixed(2)}/ขวด แล้ว`);
   closeModal();
+}
+
+async function viewColdBrewHistory() {
+  const settings = await get('settings', 'main') || {};
+  const history = [...(settings.coldBrewHistory || [])].reverse(); // ใหม่ก่อน
+
+  openModal(`<div class="modal modal-lg">
+    <div class="modal-header">
+      <h3>📋 ประวัติต้นทุน Cold Brew</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      ${history.length === 0
+        ? '<p class="text-muted">ยังไม่มีประวัติ — กด "💾 บันทึก" ในเครื่องคิดเลขเพื่อเริ่มเก็บ</p>'
+        : `<div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>วันที่</th>
+                <th>เมล็ด</th>
+                <th>เมล็ด (g)</th>
+                <th>น้ำหลังกรอง</th>
+                <th>ขนาดขวด</th>
+                <th>จำนวนขวด</th>
+                <th>ต้นทุน/g</th>
+                <th>ต้นทุน/ขวด</th>
+              </tr></thead>
+              <tbody>
+                ${history.map((h, i) => `
+                  <tr${i === 0 ? ' style="background:rgba(200,149,108,0.08)"' : ''}>
+                    <td>${formatDate(h.date)}${i === 0 ? ' <span class="badge badge-accent" style="font-size:0.6rem">ล่าสุด</span>' : ''}</td>
+                    <td>${escHtml(h.beanName || '—')}</td>
+                    <td>${h.grams}g</td>
+                    <td>${h.liquidMl} ml</td>
+                    <td>${h.bottleMl} ml</td>
+                    <td class="text-accent fw-bold">${h.bottles} ขวด</td>
+                    <td class="muted">${h.cpg ? h.cpg.toFixed(2) + '฿' : '—'}</td>
+                    <td class="money-green fw-bold">฿${h.costPerBottle?.toFixed(2) || '—'}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:12px;font-size:0.78rem;color:var(--text-muted)">
+            รวม ${history.length} ครั้ง |
+            ต้นทุน/ขวด ต่ำสุด: <span class="text-green">฿${Math.min(...history.map(h => h.costPerBottle || 0)).toFixed(2)}</span> |
+            สูงสุด: <span class="text-red">฿${Math.max(...history.map(h => h.costPerBottle || 0)).toFixed(2)}</span>
+          </div>`
+      }
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal();openColdBrewCalcModal()">🧮 คำนวณใหม่</button>
+      <button class="btn btn-ghost" onclick="closeModal()">ปิด</button>
+    </div>
+  </div>`);
 }
 
 // ===== SALES =====
